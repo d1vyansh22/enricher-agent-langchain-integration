@@ -100,7 +100,16 @@ initial_state: IPAnalysisState = {
     "ip_address": "203.0.113.42",
     "user_query": "Analyze this IP for security threats",
     "messages": [],
-    # ... other required fields
+    "ip_validation": None,
+    "ipinfo_result": None,
+    "virustotal_result": None,
+    "shodan_result": None,
+    "abuseipdb_result": None,
+    "threat_analysis": None,
+    "final_report": None,
+    "next_action": None,
+    "error_message": None,
+    "completed": False
 }
 
 # Execute workflow

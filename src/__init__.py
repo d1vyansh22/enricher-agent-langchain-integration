@@ -30,9 +30,10 @@ from .config.settings import settings
 from .models.gemini_client import gemini_llm, create_gemini_llm
 from .graph.workflow import ip_analysis_app
 from .tools.ip_validator import IPValidatorTool
+from typing import List
 
 # Define public API
-__all__ = [
+__all__: List[str] = [
     "settings",
     "gemini_llm", 
     "create_gemini_llm",

@@ -22,9 +22,10 @@ Usage:
 """
 
 from .settings import settings, Settings
+from typing import List
 
 # Export main configuration objects
-__all__ = [
+__all__: List[str] = [
     "settings",
     "Settings"
 ]
