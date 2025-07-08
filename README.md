@@ -1,4 +1,4 @@
-# LangChain IP Intelligence Agent
+# Enricher Agent: LangChain IP Intelligence System
 
 A sophisticated IP address intelligence and threat analysis system built with LangChain, LangGraph, and Google Gemini. This project integrates multiple threat intelligence sources to provide comprehensive security analysis for cybersecurity professionals.
 
@@ -13,10 +13,10 @@ A sophisticated IP address intelligence and threat analysis system built with La
 
 ## 📋 Prerequisites
 
-- Python 3.9+ (required for LangGraph)
+- Python 3.9+
 - API Keys for threat intelligence services:
   - [Google AI Studio](https://makersuite.google.com/app/apikey) (Gemini)
-  - [IPInfo](https://ipinfo.io/signup) 
+  - [IPInfo](https://ipinfo.io/signup)
   - [VirusTotal](https://www.virustotal.com/gui/join-us)
   - [Shodan](https://account.shodan.io/register)
   - [AbuseIPDB](https://www.abuseipdb.com/register)
@@ -24,47 +24,35 @@ A sophisticated IP address intelligence and threat analysis system built with La
 
 ## 🛠 Installation
 
-### 1. Clone the Repository
-```bash
-git clone <your-repo-url>
-cd langchain-ip-intelligence-agent
+1. **Clone the Repository**
+   ```bash
+   git clone <your-repo-url>
+   cd enricher-agent-langchain-integration
+   ```
+2. **Create Virtual Environment**
+   ```bash
+   python -m venv venv
+   # On Windows:
+   venv\Scripts\activate
+   # On Unix/Mac:
+   source venv/bin/activate
+   ```
+3. **Install Dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+## ⚙️ Configuration
+
+Create a `.env` file in the project root with the following variables:
+
 ```
-
-### 2. Create Virtual Environment
-```bash
-python -m venv venv
-source venv/bin/activate # On Windows: venv\Scripts\activate
-```
-
-### 3. Install Dependencies
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Configure Environment Variables
-```bash
-cp .env.template .env
-```
-
-Edit `.env` with your API keys
-
-Required environment variables:
-
-#### Core LLM
-```env
 GOOGLE_API_KEY=your_gemini_api_key
-```
-
-#### Threat Intelligence APIs
-```env
 IPINFO_API_KEY=your_ipinfo_key
 VIRUSTOTAL_API_KEY=your_virustotal_key
 SHODAN_API_KEY=your_shodan_key
 ABUSEIPDB_API_KEY=your_abuseipdb_key
-```
-
-#### LangSmith (Optional)
-```env
+# Optional for LangSmith observability
 LANGCHAIN_TRACING_V2=true
 LANGCHAIN_API_KEY=your_langsmith_key
 LANGCHAIN_PROJECT=ip-intelligence-agent
@@ -72,131 +60,59 @@ LANGCHAIN_PROJECT=ip-intelligence-agent
 
 ## 🚀 Usage
 
-### Simple Analysis
-```python
-from examples.simple_analysis import analyze_ip
+Run the agent from the command line:
 
-# Analyze a single IP
-result = await analyze_ip("8.8.8.8")
-print(result)
+```bash
+python main.py
 ```
 
-### Batch Analysis
-```python
-from examples.batch_analysis import analyze_multiple_ips
+You will be prompted to enter a query, e.g.:
 
-# Analyze multiple IPs
-ips = ["8.8.8.8", "1.1.1.1", "208.67.222.222"]
-results = await analyze_multiple_ips(ips)
+```
+Enter your query (e.g., 'Analyze IP 8.8.8.8 for threats'): Analyze IP 8.8.8.8 for threats
 ```
 
-### Custom Workflow
-```python
-from src.graph.workflow import ip_analysis_app
-from src.graph.state import IPAnalysisState
-
-# Create initial state
-initial_state: IPAnalysisState = {
-    "ip_address": "203.0.113.42",
-    "user_query": "Analyze this IP for security threats",
-    "messages": [],
-    "ip_validation": None,
-    "ipinfo_result": None,
-    "virustotal_result": None,
-    "shodan_result": None,
-    "abuseipdb_result": None,
-    "threat_analysis": None,
-    "final_report": None,
-    "next_action": None,
-    "error_message": None,
-    "completed": False
-}
-
-# Execute workflow
-result = await ip_analysis_app.ainvoke(initial_state)
-print(result["final_report"])
-```
+The system will extract the IP, gather intelligence from all sources, and print a comprehensive threat report.
 
 ## 🏗 Project Structure
 
 ```
-langchain-ip-intelligence-agent/
-├── src/
-│   ├── config/        # Configuration management
-│   ├── graph/         # LangGraph workflow definition
-│   ├── models/        # LLM integration (Gemini)
-│   └── tools/         # LangChain tools for APIs
-├── tests/             # Comprehensive test suite
-├── examples/          # Usage examples
-├── requirements.txt   # Dependencies
-├── .env.template      # Environment configuration template
-└── README.md          # This file
-```
-
-## 🧪 Testing
-
-Run the complete test suite:
-
-**All tests**
-```bash
-pytest
-```
-
-**Specific test files**
-```bash
-pytest tests/test_tools.py
-pytest tests/test_workflow.py
-```
-
-**With coverage**
-```bash
-pytest --cov=src tests/
-```
-
-**Integration tests only**
-```bash
-pytest -m integration tests/
+enricher-agent-langchain-integration/
+├── main.py                # Main entry point (CLI)
+├── my_agent/
+│   ├── __init__.py
+│   ├── agent.py           # LangGraph workflow and tool orchestration
+│   └── utils/
+│       ├── __init__.py
+│       ├── ip_validator.py  # IP validation utilities
+│       ├── nodes.py         # Node functions for the workflow
+│       ├── state.py         # State definition for the workflow
+│       └── tools.py         # API integration tools
+├── requirements.txt
+├── README.md
+└── ...
 ```
 
 ## 🔧 Development
 
-### Adding New Tools
-1. Create new tool in `src/tools/`
-2. Inherit from `langchain.tools.BaseTool`
-3. Add to workflow in `src/graph/nodes.py`
-4. Update tests in `tests/test_tools.py`
-
-### Modifying Workflow
-1. Update state schema in `src/graph/state.py`
-2. Modify nodes in `src/graph/nodes.py`
-3. Update workflow definition in `src/graph/workflow.py`
-4. Add tests in `tests/test_workflow.py`
-
-## 📊 Monitoring
-
-This project integrates with LangSmith for comprehensive observability:
-
-- **Trace Workflows**: Monitor complete analysis pipelines
-- **Debug Issues**: Inspect individual tool calls and responses
-- **Performance Metrics**: Track latency and success rates
-- **Error Analysis**: Identify and resolve issues quickly
-
-Access your traces at: https://smith.langchain.com/
+- **Add new tools**: Implement in `my_agent/utils/tools.py` and register in `my_agent/agent.py`.
+- **Modify workflow**: Update nodes in `my_agent/utils/nodes.py` and the graph in `my_agent/agent.py`.
+- **State changes**: Edit `my_agent/utils/state.py`.
+- **IP validation logic**: Update `my_agent/utils/ip_validator.py`.
 
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open Pull Request
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to your branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ### Code Quality Standards
 - Add type hints to all functions
 - Include comprehensive docstrings
-- Maintain test coverage above 90%
 - Follow PEP 8 style guidelines
-- Add integration tests for new tools
+- Add/maintain tests if you add new features (if/when a test suite is present)
 
 ## 📝 License
 
@@ -208,16 +124,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [LangGraph](https://github.com/langchain-ai/langgraph) for workflow orchestration
 - Threat intelligence providers for their APIs
 - Open source community for inspiration
-
-## 🆘 Support
-
-- **Issues**: [GitHub Issues](your-repo-url/issues)
-- **Discussions**: [GitHub Discussions](your-repo-url/discussions)
-- **Documentation**: [Project Wiki](your-repo-url/wiki)
-
----
-
-**Note**: This is a security tool for defensive purposes. Please use responsibly and in accordance with all applicable laws and regulations.
 
 
 
