@@ -4,47 +4,26 @@ from typing import Dict, Any, Optional
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain.tools import tool
+# Removed: from langchain.tools import tool # Tools will be defined in agent.py
 
 # UPDATED IMPORTS: Use relative imports based on the new structure
 from my_agent.utils.state import IPAnalysisState
 from my_agent.utils import tools # Import the tools module
-from my_agent.utils import ip_validator_tool # Import the new IP validator tool module
+from my_agent.utils import ip_validator # Import the IP validator module (no _tool suffix)
 
 """
-This module defines the agents (nodes) for the LangGraph workflow.
-Each agent performs a specific task, leveraging LLMs or external APIs.
+This module defines the core node functions for the LangGraph workflow.
+These functions operate on the graph state. Tool invocation is handled externally.
 """
 
-# Initialize the Gemini LLM
+# Initialize the Gemini LLM (still needed here for context_agent_node and report_generation_agent_node)
 llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.0)
 
-# --- Define LangChain Tools from the functions in tools.py ---
-@tool
-def ipinfo_tool(ip_address: str) -> Optional[Dict[str, Any]]:
-    """Tool to get IP information from IPInfo."""
-    return tools.get_ipinfo_data(ip_address)
+# --- Agent/Node Definitions (no @tool decorators here) ---
 
-@tool
-def virustotal_tool(ip_address: str) -> Optional[Dict[str, Any]]:
-    """Tool to get IP analysis from VirusTotal."""
-    return tools.get_virustotal_data(ip_address)
-
-@tool
-def shodan_tool(ip_address: str) -> Optional[Dict[str, Any]]:
-    """Tool to get IP information from Shodan."""
-    return tools.get_shodan_data(ip_address)
-
-@tool
-def abuseipdb_tool(ip_address: str) -> Optional[Dict[str, Any]]:
-    """Tool to get IP abuse report from AbuseIPDB."""
-    return tools.get_abuseipdb_data(ip_address)
-
-# --- Agent Definitions ---
-
-def context_agent_node(state: IPAnalysisState) -> Dict[str, Any]:
+def extract_and_validate_ip_node(state: IPAnalysisState) -> Dict[str, Any]:
     """
-    Agent responsible for extracting the IP address from the user's natural language query
+    Node responsible for extracting the IP address from the user's natural language query
     and then validating if it's suitable for external analysis.
     """
     print("---CONTEXT AGENT: Extracting and Validating IP Address---")
@@ -65,13 +44,12 @@ def context_agent_node(state: IPAnalysisState) -> Dict[str, Any]:
     chain = prompt | llm | StrOutputParser()
     extracted_ip = chain.invoke({"query": user_query}).strip()
 
-    # Step 2: Validate the extracted IP using the new tool
+    # Step 2: Validate the extracted IP using the ip_validator module
     if extracted_ip == 'NO_IP_FOUND':
         print("No IP address extracted by LLM.")
         return {"ip_address": None, "error_message": "No valid IP address found in the query."}
     else:
-        # Invoke the IP validation tool
-        validation_result = ip_validator_tool.check_ip_for_analysis.invoke(extracted_ip)
+        validation_result = ip_validator.check_ip_for_analysis_func(extracted_ip)
         should_analyze = validation_result["should_analyze"]
         reason = validation_result["reason"]
 
@@ -95,13 +73,16 @@ def start_api_calls_node(state: IPAnalysisState) -> Dict[str, Any]:
 def ipinfo_agent_node(state: IPAnalysisState) -> Dict[str, Any]:
     """
     Agent to call the IPInfo tool and update the state with the results.
+    This node will invoke the tool via the ToolExecutor in agent.py.
     """
     print("---IPINFO AGENT: Fetching data---")
     ip_address = state.get("ip_address")
     if ip_address:
-        ipinfo_data = ipinfo_tool.invoke(ip_address)
-        print(f"IPInfo Data: {ipinfo_data}")
-        return {"ipinfo_data": ipinfo_data}
+        # In this setup, the actual tool invocation logic is handled by the ToolExecutor
+        # in agent.py. This node just prepares the input for that tool.
+        # The graph will implicitly pass the ip_address to the tool_executor.
+        # For this node's return, we just indicate it's ready for the tool call.
+        return {"tool_input": ip_address, "tool_name": "ipinfo_tool"}
     return {"ipinfo_data": None}
 
 
@@ -112,9 +93,7 @@ def virustotal_agent_node(state: IPAnalysisState) -> Dict[str, Any]:
     print("---VIRUSTOTAL AGENT: Fetching data---")
     ip_address = state.get("ip_address")
     if ip_address:
-        virustotal_data = virustotal_tool.invoke(ip_address)
-        print(f"VirusTotal Data: {virustotal_data}")
-        return {"virustotal_data": virustotal_data}
+        return {"tool_input": ip_address, "tool_name": "virustotal_tool"}
     return {"virustotal_data": None}
 
 
@@ -125,9 +104,7 @@ def shodan_agent_node(state: IPAnalysisState) -> Dict[str, Any]:
     print("---SHODAN AGENT: Fetching data---")
     ip_address = state.get("ip_address")
     if ip_address:
-        shodan_data = shodan_tool.invoke(ip_address)
-        print(f"Shodan Data: {shodan_data}")
-        return {"shodan_data": shodan_data}
+        return {"tool_input": ip_address, "tool_name": "shodan_tool"}
     return {"shodan_data": None}
 
 
@@ -138,9 +115,7 @@ def abuseipdb_agent_node(state: IPAnalysisState) -> Dict[str, Any]:
     print("---ABUSEIPDB AGENT: Fetching data---")
     ip_address = state.get("ip_address")
     if ip_address:
-        abuseipdb_data = abuseipdb_tool.invoke(ip_address)
-        print(f"AbuseIPDB Data: {abuseipdb_data}")
-        return {"abuseipdb_data": abuseipdb_data}
+        return {"tool_input": ip_address, "tool_name": "abuseipdb_tool"}
     return {"abuseipdb_data": None}
 
 

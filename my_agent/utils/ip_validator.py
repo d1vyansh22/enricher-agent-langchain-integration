@@ -1,16 +1,16 @@
-# ip_validator_tool.py
+# my_agent/utils/ip_validator.py
 import re
 import ipaddress
 import logging
 from typing import List, Tuple, Dict, Any
-from langchain.tools import tool
+# Removed: from langchain.tools import tool # No longer needed here
 
 logger = logging.getLogger(__name__)
 
 """
-IP Address Validation Utilities and LangChain Tool Wrapper.
-This module provides functions to validate and classify IP addresses,
-and a tool to determine if an IP is suitable for external analysis.
+IP Address Validation Utilities.
+This module provides functions to validate and classify IP addresses.
+The tool wrapper will be defined in agent.py
 """
 
 def validate_ip_address(ip: str) -> bool:
@@ -79,8 +79,8 @@ def get_ip_classification(ip: str) -> Dict[str, Any]:
             'error': str(e)
         }
 
-@tool
-def check_ip_for_analysis(ip_address: str) -> Dict[str, Any]:
+# The actual tool definition will be in agent.py
+def check_ip_for_analysis_func(ip_address: str) -> Dict[str, Any]:
     """
     Determines if an IP address is suitable for external threat intelligence analysis.
     Returns a dictionary with 'should_analyze' (bool) and 'reason' (str).
