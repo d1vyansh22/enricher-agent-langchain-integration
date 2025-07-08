@@ -1,16 +1,18 @@
-# graph.py
+# my_agent/agent.py
 from langgraph.graph import StateGraph, END
-from state import IPAnalysisState
-from agents import (
+from typing import Literal
+
+# UPDATED IMPORTS: Use relative imports based on the new structure
+from my_agent.utils.state import IPAnalysisState
+from my_agent.utils.nodes import ( # Import all node functions from nodes.py
     context_agent_node,
-    start_api_calls_node, # NEW: Import the new fan-out node
+    start_api_calls_node,
     ipinfo_agent_node,
     virustotal_agent_node,
     shodan_agent_node,
     abuseipdb_agent_node,
     report_generation_agent_node
 )
-from typing import Literal
 
 """
 This module defines the LangGraph workflow for the threat intelligence system.
@@ -20,14 +22,16 @@ It orchestrates the execution of different agents based on the graph state.
 def should_continue_analysis(state: IPAnalysisState) -> Literal["start_api_calls", "end_no_ip"]:
     """
     Conditional edge: Determines if the analysis should proceed with API calls
-    or terminate if no IP address was found.
+    or terminate if no IP address was found (e.g., due to invalid IP or LLM not finding one).
     """
-    if state.get("ip_address"):
-        print("---DECISION: IP found, proceeding to API calls.---")
-        return "start_api_calls" # Changed to point to the new fan-out node
-    else:
-        print("---DECISION: No IP found, ending analysis.---")
+    # If ip_address is None or there's an error message indicating no valid IP
+    if state.get("ip_address") is None:
+        print("---DECISION: No valid IP found, ending analysis.---")
         return "end_no_ip"
+    else:
+        print("---DECISION: IP found, proceeding to API calls.---")
+        return "start_api_calls"
+
 
 def build_graph():
     """
@@ -37,7 +41,7 @@ def build_graph():
 
     # Define the nodes
     workflow.add_node("context_agent", context_agent_node)
-    workflow.add_node("start_api_calls", start_api_calls_node) # NEW: Add the fan-out node
+    workflow.add_node("start_api_calls", start_api_calls_node)
     workflow.add_node("ipinfo_agent", ipinfo_agent_node)
     workflow.add_node("virustotal_agent", virustotal_agent_node)
     workflow.add_node("shodan_agent", shodan_agent_node)
@@ -48,22 +52,21 @@ def build_graph():
     workflow.set_entry_point("context_agent")
 
     # Define the edges
-    # After context_agent, decide whether to proceed or end
+    # After context_agent, decide whether to proceed to API calls or end
     workflow.add_conditional_edges(
         "context_agent",
         should_continue_analysis,
         {
-            "start_api_calls": "start_api_calls", # Changed to point to the single fan-out node
+            "start_api_calls": "start_api_calls",
             "end_no_ip": END
         }
     )
 
-    # NEW: Add edges from the fan-out node to all parallel API agents
+    # From the dispatcher node, fan out to all parallel API agents
     workflow.add_edge("start_api_calls", "ipinfo_agent")
     workflow.add_edge("start_api_calls", "virustotal_agent")
     workflow.add_edge("start_api_calls", "shodan_agent")
     workflow.add_edge("start_api_calls", "abuseipdb_agent")
-
 
     # After all API agents, proceed to report generation.
     # LangGraph automatically handles waiting for all incoming branches to complete

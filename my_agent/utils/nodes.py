@@ -1,4 +1,4 @@
-# agents.py
+# my_agent/utils/nodes.py
 import re
 from typing import Dict, Any, Optional
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -6,9 +6,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain.tools import tool
 
-from state import IPAnalysisState
-import tools # Import the tools module
-import ip_validator_tool # NEW: Import the new IP validator tool module
+# UPDATED IMPORTS: Use relative imports based on the new structure
+from my_agent.utils.state import IPAnalysisState
+from my_agent.utils import tools # Import the tools module
+from my_agent.utils import ip_validator_tool # Import the new IP validator tool module
 
 """
 This module defines the agents (nodes) for the LangGraph workflow.

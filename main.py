@@ -1,10 +1,11 @@
 # main.py
 import os
 from dotenv import load_dotenv
-from graph import build_graph
-from state import IPAnalysisState
-from typing import Dict, Any
-import logging # Import logging module
+import logging
+
+# UPDATED IMPORT: Import build_graph from the new location
+from my_agent.agent import build_graph
+from my_agent.utils.state import IPAnalysisState # Import state for type hinting
 
 """
 Main application file to run the multi-agentic threat intelligence system.
