@@ -1,10 +1,9 @@
 # tools.py
 import os
-import requests # Used for robust API calls
+import requests
 import logging
 import time
-import ipinfo # Still used for IPInfo API
-import shodan # Still used for Shodan API
+import json # Needed for Shodan's JSON parsing
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 
@@ -17,29 +16,160 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 """
 This module defines functions to interact with various threat intelligence APIs.
 Each function is designed to be wrapped as a LangChain tool.
+All functions include retry logic and detailed error handling.
 """
 
-def get_ipinfo_data(ip_address: str) -> Optional[Dict[str, Any]]:
+def get_ipinfo_data(ip_address: str,
+                   timeout: int = 10, max_retries: int = 3) -> Dict[str, Any]:
     """
-    Retrieves IP information from the IPInfo API.
+    Fetches IP information from IPInfo API with retry logic (no caching).
+    (Adapted from provided ipinfo_tool.py)
 
     Args:
-        ip_address (str): The IP address to query.
+        ip_address: The IP address to lookup (e.g., "8.8.8.8")
+        timeout: Request timeout in seconds (default: 10)
+        max_retries: Maximum number of retry attempts (default: 3)
 
     Returns:
-        Optional[Dict[str, Any]]: A dictionary containing IPInfo data, or None if an error occurs.
+        dict: IP information including location, ISP, and network details
     """
-    try:
-        access_token = os.getenv("IPINFO_API_KEY")
-        if not access_token:
-            print("Error: IPINFO_API_KEY not found in environment variables.")
-            return None
-        handler = ipinfo.getHandler(access_token)
-        details = handler.getDetails(ip_address)
-        return details.all
-    except Exception as e:
-        print(f"Error fetching IPInfo data for {ip_address}: {e}")
-        return None
+    service_name = "ipinfo"
+    api_key = os.getenv("IPINFO_API_KEY") # IPInfo API key is optional for basic lookups but recommended
+
+    base_url = "https://ipinfo.io"
+    for attempt in range(max_retries):
+        try:
+            url = f"{base_url}/{ip_address}/json"
+            headers = {'User-Agent': 'google-adk-ip-enricher/2.0'}
+            if api_key:
+                headers['Authorization'] = f'Bearer {api_key}'
+
+            logger.debug(f"[-] IPInfo API call attempt {attempt + 1} for {ip_address}")
+            start_time = time.time()
+            response = requests.get(url, headers=headers, timeout=timeout)
+            elapsed_time = time.time() - start_time
+
+            if response.status_code == 200:
+                data = response.json()
+
+                result = {
+                    "ip": ip_address,
+                    "hostname": data.get('hostname'),
+                    "city": data.get('city'),
+                    "region": data.get('region'),
+                    "country": data.get('country'),
+                    "country_name": data.get('country_name'),
+                    "location": data.get('loc'),
+                    "organization": data.get('org'),
+                    "postal": data.get('postal'),
+                    "timezone": data.get('timezone'),
+                    "asn": data.get('asn'),
+                    "company": data.get('company', {}),
+                    "carrier": data.get('carrier', {}),
+                    "privacy": data.get('privacy', {}),
+                    "abuse": data.get('abuse', {}),
+                    "domains": data.get('domains', []),
+                    "source": service_name,
+                    "api_response_time": round(elapsed_time, 3),
+                    "status": "success"
+                }
+
+                privacy_info = data.get('privacy', {})
+                if privacy_info:
+                    result["privacy_flags"] = {
+                        "vpn": privacy_info.get('vpn', False),
+                        "proxy": privacy_info.get('proxy', False),
+                        "tor": privacy_info.get('tor', False),
+                        "relay": privacy_info.get('relay', False),
+                        "hosting": privacy_info.get('hosting', False)
+                    }
+                    result["has_privacy_concerns"] = any(result["privacy_flags"].values())
+
+                logger.info(f"[-] IPInfo lookup successful for {ip_address} ({elapsed_time:.3f}s)")
+                return result
+
+            elif response.status_code == 429:
+                logger.warning(f"[x] IPInfo rate limit exceeded. Attempt {attempt + 1}/{max_retries}")
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    logger.info(f"[-] Waiting {wait_time} seconds before retry...")
+                    time.sleep(wait_time)
+
+            elif response.status_code == 404:
+                logger.error(f"[x] IPInfo: IP address not found: {ip_address}")
+                return {
+                    "ip": ip_address,
+                    "error": f"IP address not found in IPInfo database",
+                    "error_code": 404,
+                    "source": service_name,
+                    "status": "not_found"
+                }
+
+            elif response.status_code == 401:
+                logger.error(f"[x] IPInfo: Authentication failed")
+                return {
+                    "ip": ip_address,
+                    "error": "IPInfo API authentication failed. Check your API key.",
+                    "error_code": 401,
+                    "source": service_name,
+                    "status": "auth_error"
+                }
+
+            else:
+                logger.error(f"[x] IPInfo HTTP Error {response.status_code}: {response.text}")
+                if attempt == max_retries - 1:
+                    return {
+                        "ip": ip_address,
+                        "error": f"IPInfo API error: HTTP {response.status_code}",
+                        "error_code": response.status_code,
+                        "source": service_name,
+                        "status": "api_error"
+                    }
+
+        except requests.exceptions.Timeout:
+            logger.error(f"[-] IPInfo timeout on attempt {attempt + 1}/{max_retries}")
+            if attempt == max_retries - 1:
+                return {
+                    "ip": ip_address,
+                    "error": f"IPInfo API timeout after {max_retries} attempts",
+                    "error_type": "timeout",
+                    "source": service_name,
+                    "status": "timeout_error"
+                }
+
+        except requests.exceptions.ConnectionError:
+            logger.error(f"[-] IPInfo connection error on attempt {attempt + 1}/{max_retries}")
+            if attempt == max_retries - 1:
+                return {
+                    "ip": ip_address,
+                    "error": f"IPInfo API connection error after {max_retries} attempts",
+                    "error_type": "connection_error",
+                    "source": service_name,
+                    "status": "connection_error"
+                }
+
+        except Exception as e:
+            logger.error(f"[x] Unexpected IPInfo error: {e}")
+            return {
+                "ip": ip_address,
+                "error": f"Unexpected error during IPInfo lookup: {str(e)}",
+                "error_type": "unexpected_error",
+                "source": service_name,
+                "status": "unexpected_error"
+            }
+
+        if attempt < max_retries - 1:
+            wait_time = 2 ** attempt
+            logger.info(f"[-] Retrying IPInfo in {wait_time} seconds...")
+            time.sleep(wait_time)
+
+    logger.error(f"[x] IPInfo lookup failed for {ip_address} after {max_retries} attempts")
+    return {
+        "ip": ip_address,
+        "error": f"IPInfo lookup failed after {max_retries} attempts",
+        "source": service_name,
+        "status": "max_retries_exceeded"
+    }
 
 def _get_virustotal_threat_level(threat_score: float) -> str:
     """Helper function to determine threat level based on VirusTotal score."""
@@ -240,31 +370,241 @@ def get_virustotal_data(ip_address: str,
         "status": "max_retries_exceeded"
     }
 
+def _get_shodan_risk_level(risk_score: float) -> str:
+    """Helper function to determine risk level based on Shodan score."""
+    if risk_score == 0:
+        return "minimal"
+    elif risk_score < 20:
+        return "low"
+    elif risk_score < 40:
+        return "medium"
+    elif risk_score < 70:
+        return "high"
+    else:
+        return "critical"
 
-def get_shodan_data(ip_address: str) -> Optional[Dict[str, Any]]:
+def get_shodan_data(ip_address: str,
+                   timeout: int = 10, max_retries: int = 3) -> Dict[str, Any]:
     """
-    Retrieves IP information from the Shodan API.
+    Fetches IP information from Shodan API with retry logic (no caching).
+    (Adapted from provided shodan_tool.py)
 
     Args:
-        ip_address (str): The IP address to query.
+        ip_address: The IP address to lookup (e.g., "8.8.8.8")
+        timeout: Request timeout in seconds (default: 10)
+        max_retries: Maximum number of retry attempts (default: 3)
 
     Returns:
-        Optional[Dict[str, Any]]: A dictionary containing Shodan data, or None if an error occurs.
+        dict: Shodan information including ports, services, and vulnerabilities
     """
-    try:
-        api_key = os.getenv("SHODAN_API_KEY")
-        if not api_key:
-            print("Error: SHODAN_API_KEY not found in environment variables.")
-            return None
-        api = shodan.Shodan(api_key)
-        host = api.host(ip_address)
-        return host
-    except shodan.APIError as e:
-        print(f"Shodan API Error for {ip_address}: {e}")
-        return None
-    except Exception as e:
-        print(f"Error fetching Shodan data for {ip_address}: {e}")
-        return None
+    service_name = "shodan"
+    api_key = os.getenv("SHODAN_API_KEY")
+    if not api_key:
+        logger.error("Shodan API key not configured.")
+        return {
+            "status": "error",
+            "service": service_name,
+            "ip_address": ip_address,
+            "error_message": "Shodan API key not configured",
+            "error_type": "configuration_error",
+            "data_source": service_name
+        }
+
+    base_url = "https://api.shodan.io/shodan/host"
+    url = f"{base_url}/{ip_address}?key={api_key}"
+
+    for attempt in range(max_retries):
+        try:
+            logger.debug(f"[-] Shodan REST API call attempt {attempt + 1} for {ip_address}")
+            start_time = time.time()
+            response = requests.get(url, timeout=timeout)
+            elapsed_time = time.time() - start_time
+
+            if response.status_code == 200:
+                host_info = response.json()
+
+                ports = host_info.get("ports", [])
+                hostnames = host_info.get("hostnames", [])
+                vulnerabilities = host_info.get("vulns", [])
+                tags = host_info.get("tags", [])
+
+                suspicious_tags = ["malware", "botnet", "spam", "phishing", "tor", "proxy"]
+                has_suspicious_tags = any(tag.lower() in suspicious_tags for tag in tags)
+                has_vulnerabilities = len(vulnerabilities) > 0
+
+                risk_score = 0
+                if vulnerabilities:
+                    risk_score += min(len(vulnerabilities) * 10, 40)
+                if has_suspicious_tags:
+                    risk_score += 30
+                if len(ports) > 10:
+                    risk_score += 20
+                high_risk_ports = [22, 23, 135, 139, 445, 1433, 3389, 5900]
+                open_high_risk_ports = [port for port in ports if port in high_risk_ports]
+                if open_high_risk_ports:
+                    risk_score += len(open_high_risk_ports) * 5
+                risk_score = min(risk_score, 100)
+
+                result = {
+                    "ip": ip_address,
+                    "ports": sorted(ports),
+                    "port_count": len(ports),
+                    "hostnames": hostnames,
+                    "country": host_info.get("country_name", "Unknown"),
+                    "country_code": host_info.get("country_code", "Unknown"),
+                    "city": host_info.get("city", "Unknown"),
+                    "region": host_info.get("region_code", "Unknown"),
+                    "organization": host_info.get("org", "Unknown"),
+                    "isp": host_info.get("isp", "Unknown"),
+                    "asn": host_info.get("asn", "Unknown"),
+                    "last_update": host_info.get("last_update", "Unknown"),
+                    "vulnerabilities": vulnerabilities,
+                    "vulnerability_count": len(vulnerabilities),
+                    "tags": tags,
+                    "os": host_info.get("os"),
+                    "risk_score": risk_score,
+                    "risk_level": _get_shodan_risk_level(risk_score),
+                    "is_suspicious": has_suspicious_tags or has_vulnerabilities or risk_score > 30,
+                    "high_risk_ports": open_high_risk_ports,
+                    "source": service_name,
+                    "api_response_time": round(elapsed_time, 3),
+                    "status": "success"
+                }
+
+                data_services = host_info.get("data", [])
+                if data_services:
+                    services = []
+                    for service in data_services[:10]:
+                        service_info = {
+                            "port": service.get("port"),
+                            "protocol": service.get("transport", "tcp"),
+                            "service": service.get("product", "unknown"),
+                            "version": service.get("version", ""),
+                            "banner": service.get("data", "")[:200] + "..." if len(service.get("data", "")) > 200 else service.get("data", ""),
+                            "timestamp": service.get("timestamp")
+                        }
+                        services.append(service_info)
+                    result["services"] = services
+
+                logger.info(f"[-] Shodan REST lookup successful for {ip_address} ({elapsed_time:.3f}s)")
+                return result
+
+            elif response.status_code == 401:
+                logger.error(f"[x] Shodan: Authentication failed")
+                return {
+                    "ip": ip_address,
+                    "error": "Shodan API authentication failed. Check your API key.",
+                    "error_code": 401,
+                    "source": service_name,
+                    "status": "auth_error"
+                }
+
+            elif response.status_code == 404:
+                logger.warning(f"[!] Shodan: No data found for IP {ip_address}")
+                return {
+                    "ip": ip_address,
+                    "message": "No information available for this IP address in Shodan",
+                    "ports": [],
+                    "port_count": 0,
+                    "vulnerability_count": 0,
+                    "risk_score": 0,
+                    "risk_level": "unknown",
+                    "is_suspicious": False,
+                    "source": service_name,
+                    "status": "no_data"
+                }
+
+            elif response.status_code == 429:
+                logger.warning(f"[!] Shodan rate limit exceeded. Attempt {attempt + 1}/{max_retries}")
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    logger.info(f"[-] Waiting {wait_time} seconds before retry...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    return {
+                        "ip": ip_address,
+                        "error": "Shodan rate limit exceeded",
+                        "error_code": 429,
+                        "source": service_name,
+                        "status": "rate_limit"
+                    }
+
+            else:
+                logger.error(f"[x] Shodan API HTTP {response.status_code}: {response.text}")
+                if attempt == max_retries - 1:
+                    return {
+                        "ip": ip_address,
+                        "error": f"Shodan API HTTP error: {response.status_code}",
+                        "error_code": response.status_code,
+                        "source": service_name,
+                        "status": "api_error"
+                    }
+
+        except requests.exceptions.Timeout:
+            logger.error(f"[!] Shodan request timeout on attempt {attempt + 1}/{max_retries}")
+            if attempt == max_retries - 1:
+                return {
+                    "ip": ip_address,
+                    "error": "Request timeout",
+                    "error_type": "timeout",
+                    "source": service_name,
+                    "status": "timeout"
+                }
+
+        except requests.exceptions.ConnectionError:
+            logger.error(f"[!] Shodan connection error on attempt {attempt + 1}/{max_retries}")
+            if attempt == max_retries - 1:
+                return {
+                    "ip": ip_address,
+                    "error": "Connection error",
+                    "error_type": "connection_error",
+                    "source": service_name,
+                    "status": "connection_error"
+                }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[x] Shodan request error: {e}")
+            return {
+                "ip": ip_address,
+                "error": f"Request error: {str(e)}",
+                "error_type": "request_error",
+                "source": service_name,
+                "status": "request_error"
+            }
+
+        except json.JSONDecodeError as e:
+            logger.error(f"[x] Shodan JSON decode error: {e}")
+            return {
+                "ip": ip_address,
+                "error": f"Invalid JSON response: {str(e)}",
+                "error_type": "json_error",
+                "source": service_name,
+                "status": "json_error"
+            }
+
+        except Exception as e:
+            logger.error(f"[x] Unexpected Shodan error: {e}")
+            return {
+                "ip": ip_address,
+                "error": f"Unexpected error during Shodan lookup: {str(e)}",
+                "error_type": "unexpected_error",
+                "source": service_name,
+                "status": "unexpected_error"
+            }
+
+        if attempt < max_retries - 1:
+            wait_time = 2 ** attempt
+            logger.info(f"[-] Retrying Shodan REST in {wait_time} seconds...")
+            time.sleep(wait_time)
+
+    logger.error(f"[x] Shodan lookup failed for {ip_address} after {max_retries} attempts")
+    return {
+        "ip": ip_address,
+        "error": f"Shodan lookup failed after {max_retries} attempts",
+        "source": service_name,
+        "status": "max_retries_exceeded"
+    }
 
 
 def get_abuseipdb_data(ip_address: str,

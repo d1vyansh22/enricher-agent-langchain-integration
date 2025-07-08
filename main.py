@@ -4,30 +4,50 @@ from dotenv import load_dotenv
 from graph import build_graph
 from state import IPAnalysisState
 from typing import Dict, Any
+import logging # Import logging module
 
 """
 Main application file to run the multi-agentic threat intelligence system.
 Loads environment variables, initializes the graph, and handles user interaction.
 """
 
+# Configure logging at the very beginning to ensure all logs are visible
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+
 def main():
-    # Load environment variables
+    # Load environment variables from .env file
     load_dotenv()
 
-    # Set LangSmith environment variables if tracing is enabled
+    # --- Ensure LangSmith environment variables are set early ---
+    # These must be set BEFORE any LangChain/LangGraph components are initialized
+    # for tracing to work correctly.
     os.environ["LANGCHAIN_TRACING_V2"] = os.getenv("LANGCHAIN_TRACING_V2", "false")
     os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY", "")
     os.environ["LANGCHAIN_PROJECT"] = os.getenv("LANGCHAIN_PROJECT", "Threat Intelligence System")
+    # Optionally, you can also set the endpoint if you're not using the default
+    # os.environ["LANGCHAIN_ENDPOINT"] = os.getenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com")
+
+    # Confirmation prints for debugging
+    logger.info(f"LANGCHAIN_TRACING_V2: {os.environ.get('LANGCHAIN_TRACING_V2')}")
+    logger.info(f"LANGCHAIN_PROJECT: {os.environ.get('LANGCHAIN_PROJECT')}")
+    # Be careful not to print the full API key in production logs
+    if os.environ.get('LANGCHAIN_API_KEY'):
+        logger.info("LANGCHAIN_API_KEY is set (value hidden for security).")
+    else:
+        logger.warning("LANGCHAIN_API_KEY is NOT set. LangSmith tracing will not work.")
+
 
     # Ensure Google API Key is set
     if not os.getenv("GOOGLE_API_KEY"):
-        print("Error: GOOGLE_API_KEY environment variable not set.")
-        print("Please set it in your .env file or system environment.")
+        logger.error("Error: GOOGLE_API_KEY environment variable not set.")
+        logger.error("Please set it in your .env file or system environment.")
         return
 
-    print("Initializing Threat Intelligence System...")
-    app = build_graph()
-    print("System ready. Type 'exit' to quit.")
+    logger.info("Initializing Threat Intelligence System...")
+    app = build_graph() # Graph initialization happens AFTER env vars are set
+    logger.info("System ready. Type 'exit' to quit.")
 
     while True:
         user_input = input("\nEnter your query (e.g., 'Analyze IP 8.8.8.8 for threats'): ")
@@ -46,25 +66,23 @@ def main():
             "error_message": None
         }
 
-        print("\n--- Running Analysis ---")
+        logger.info("\n--- Running Analysis ---")
         try:
-            # Invoke the graph with the initial state to get the final result
+            # Invoke the graph with the initial state
             final_result = app.invoke(initial_state)
 
-            print("\n--- Analysis Complete ---")
+            logger.info("\n--- Analysis Complete ---")
             if final_result.get("error_message"):
-                print(f"Error: {final_result['error_message']}")
+                logger.error(f"Error: {final_result['error_message']}")
             elif final_result.get("analysis_report"):
-                print("\n--- Threat Intelligence Report ---")
-                print(final_result["analysis_report"])
+                logger.info("\n--- Threat Intelligence Report ---")
+                print(final_result["analysis_report"]) # Use print for the final report to avoid logger prefixes
             else:
-                print("No report generated. Check for errors or if an IP was extracted.")
-                print(f"Final State (for debugging): {final_result}")
+                logger.warning("No report generated. Check for errors or if an IP was extracted.")
+                logger.info(f"Final State (for debugging): {final_result}")
 
         except Exception as e:
-            print(f"\nAn unexpected error occurred during analysis: {e}")
-            import traceback
-            traceback.print_exc() # Print full traceback for debugging
+            logger.exception(f"\nAn unexpected error occurred during analysis: {e}") # Use logger.exception for full traceback
 
 if __name__ == "__main__":
     main()
